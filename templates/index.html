@@ -11,14 +11,15 @@
     <div class="header">
       <div class="icon">🎙️</div>
       <h1>Speech Emotion Recognition</h1>
-      <p class="sub">Upload a short .wav clip and the model will predict the speaker's emotion from its acoustic features.</p>
+      <p class="sub">Upload a short audio clip and the model will predict the speaker's emotion from its acoustic features.</p>
     </div>
 
     <label class="dropzone" id="dropzone" for="audioInput">
       <div class="dz-icon">📁</div>
-      <div><strong>Click to upload</strong> or drag a .wav file here</div>
+      <div><strong>Click to upload</strong> or drag a file here</div>
+      <div class="dz-formats">WAV, MP3, OGG, or FLAC</div>
     </label>
-    <input type="file" id="audioInput" accept=".wav">
+    <input type="file" id="audioInput" accept=".wav,.mp3,.ogg,.flac">
     <div class="file-chip" id="fileChip">
       <span class="name" id="fileName"></span>
       <button type="button" class="clear" id="clearFile" aria-label="Remove file">✕</button>

@@ -1,6 +1,7 @@
 """
 Flask demo for Speech Emotion Recognition.
-Upload a .wav file in the browser -> get predicted emotion + confidence.
+Upload an audio file in the browser -> get predicted emotion + confidence.
+Supported formats: WAV, MP3, OGG, FLAC (decoded via soundfile/libsndfile, no FFmpeg needed).
 
 Run locally:
     pip install -r requirements.txt
@@ -22,6 +23,7 @@ MODEL_PATH = os.path.join(BASE_DIR, "best_model.h5")
 LABEL_ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder.pkl")
 N_MFCC = 40
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".ogg", ".flac"}
 # -------------------------------------------------------
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -53,6 +55,11 @@ def predict():
 
     file = request.files["audio"]
     filename = secure_filename(file.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        supported = ", ".join(sorted(ALLOWED_EXTENSIONS))
+        return jsonify({"error": f"Unsupported file type '{ext}'. Supported: {supported}"}), 400
+
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(filepath)
 
@@ -71,6 +78,9 @@ def predict():
             }
         }
         return jsonify(result)
+    except Exception as e:
+        detail = str(e) or type(e).__name__
+        return jsonify({"error": f"Could not process audio file: {detail}"}), 400
     finally:
         os.remove(filepath)
 

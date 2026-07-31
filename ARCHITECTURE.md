@@ -81,16 +81,21 @@ sequenceDiagram
     U->>F: GET /
     F-->>U: render_template(index.html)
 
-    U->>U: user selects/drops a .wav file
+    U->>U: user selects/drops an audio file (.wav/.mp3/.ogg/.flac)
     U->>F: POST /predict (multipart file "audio")
+    F->>F: check extension against ALLOWED_EXTENSIONS<br/>400 + JSON error if unsupported
     F->>F: save upload to uploads/<filename>
     F->>F: extract_features(): librosa MFCC (same recipe as training)
-    F->>M: model.predict(features)
-    M-->>F: softmax probabilities (8,)
-    F->>F: argmax → label_encoder.inverse_transform
-    F->>F: os.remove(filepath)  (temp file cleanup, in `finally`)
-    F-->>U: JSON {emotion, confidence, all_probabilities}
-    U->>U: render emoji + confidence badge + sorted probability bars
+    alt decode/inference succeeds
+        F->>M: model.predict(features)
+        M-->>F: softmax probabilities (8,)
+        F->>F: argmax → label_encoder.inverse_transform
+        F-->>U: 200 JSON {emotion, confidence, all_probabilities}
+    else decode fails (corrupt file, unsupported codec variant)
+        F-->>U: 400 JSON {error: "Could not process audio file: ..."}
+    end
+    F->>F: os.remove(filepath)  (temp file cleanup, always runs, in `finally`)
+    U->>U: render emoji + confidence badge + sorted probability bars, or error hint
 ```
 
 Key points about `app.py` as currently written:
@@ -101,6 +106,21 @@ Key points about `app.py` as currently written:
   (`finally: os.remove(filepath)`), so nothing persists between requests.
 - The Flask dev server runs with `debug=True, use_reloader=False` (the reloader was disabled
   on this branch — it was spawning orphaned processes that never shut down cleanly on Windows).
+- **Supported upload formats: WAV, MP3, OGG, FLAC** — enforced server-side via an
+  `ALLOWED_EXTENSIONS` allow-list in `app.py` (previously the `.wav`-only restriction existed
+  only as a client-side file-picker hint with zero backend enforcement). All four formats are
+  decoded by `soundfile`/`libsndfile` directly — **no FFmpeg dependency**. This was verified
+  empirically (write → `librosa.load` → MFCC round-trip) against the exact `soundfile`
+  version pinned in `requirements.txt`, not assumed from general library docs.
+  M4A/AAC is deliberately out of scope: `libsndfile` doesn't support that container, and the
+  `audioread` fallback has no working backend without an FFmpeg install on the host — adding
+  it later means introducing FFmpeg as a system-level (non-pip) dependency.
+- **Decode failures are now caught explicitly.** `/predict` previously had a bare
+  `try/finally` with no `except` — any decode error (corrupt file, truncated upload) surfaced
+  as an uncaught 500 with a raw traceback. It now returns a clean `400` with a JSON
+  `{"error": ...}` message the frontend already knows how to render. One caveat: some
+  exceptions (e.g. `audioread.exceptions.NoBackendError`) have an empty `str()`, so the
+  handler falls back to the exception class name when the message itself is blank.
 
 ## Known coupling / fragility (relevant before touching the ML side)
 

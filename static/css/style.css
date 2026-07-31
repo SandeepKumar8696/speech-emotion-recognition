@@ -49,6 +49,7 @@ p.sub{ color:var(--muted); margin:0; font-size:14px; line-height:1.5; }
   color:var(--muted); font-size:14px;
 }
 .dropzone .dz-icon{ font-size:22px; opacity:.8; }
+.dropzone .dz-formats{ font-size:11px; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); opacity:.7; }
 .dropzone:hover, .dropzone.drag{
   border-color:var(--accent); background:var(--accent-soft);
 }
