@@ -1,0 +1,12 @@
+flask
+tensorflow
+librosa
+soundfile
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+joblib
+werkzeug
+h5py

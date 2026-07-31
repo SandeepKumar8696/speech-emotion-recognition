@@ -17,10 +17,11 @@ from tensorflow.keras.models import load_model
 from werkzeug.utils import secure_filename
 
 # ---------------- CONFIG (edit these) ----------------
-MODEL_PATH = "C:/Users/sandeep kumar/Downloads/model.h5"
-LABEL_ENCODER_PATH = "C:/Users/sandeep kumar/Downloads/label_encoder.pkl"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "best_model.h5")
+LABEL_ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder.pkl")
 N_MFCC = 40
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 # -------------------------------------------------------
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -75,4 +76,4 @@ def predict():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, use_reloader=False)
