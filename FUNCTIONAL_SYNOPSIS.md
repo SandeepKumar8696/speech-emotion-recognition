@@ -1,9 +1,10 @@
 # Functional Synopsis — Speech Emotion Recognition
 
 *For the component-level technical breakdown (diagrams, request flow, file-by-file
-responsibilities), see [ARCHITECTURE.md](ARCHITECTURE.md). This document instead answers:
-what is this system for, what can it actually do today, and how does it achieve that —
-without requiring the reader to trace through code.*
+responsibilities), see [ARCHITECTURE.md](ARCHITECTURE.md). For how the project got from its
+original state to this one, see [PROJECT_EVOLUTION.md](PROJECT_EVOLUTION.md). This document
+instead answers: what is this system for, what can it actually do today, and how does it
+achieve that — without requiring the reader to trace through code.*
 
 ## Objective
 
@@ -19,6 +20,12 @@ feature engineering or model knowledge required from the end user.
 
 - Accepts an uploaded audio clip in **WAV, MP3, OGG, or FLAC** format through a browser UI
   (drag-and-drop or file picker)
+- Alternatively, lets the user **record directly from their microphone** in-browser — no
+  separate recording app or file needed. The recording is converted to a standard WAV clip
+  entirely on the client side before being sent, so it's treated identically to an upload.
+- Lets the user **play back the selected or recorded clip in-browser** (native player with
+  play/pause, seek, and duration) before running a prediction, so they can confirm it's the
+  right audio — this playback is entirely local and never touches the server
 - Analyzes roughly a 3-second window of the clip's acoustic characteristics
 - Returns one of 8 emotion labels, a confidence percentage for the top prediction, and a
   full breakdown of the model's probability across all 8 classes

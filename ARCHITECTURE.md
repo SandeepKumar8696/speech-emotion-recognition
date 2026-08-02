@@ -2,7 +2,9 @@
 
 This document describes how the pieces of this repository fit together: the offline
 pipeline that produces the trained model, and the runtime path that serves predictions
-through the Flask app.
+through the Flask app. For the non-technical objective/capabilities view, see
+[FUNCTIONAL_SYNOPSIS.md](FUNCTIONAL_SYNOPSIS.md); for how the project reached this state,
+see [PROJECT_EVOLUTION.md](PROJECT_EVOLUTION.md).
 
 ## Components
 
@@ -14,7 +16,7 @@ through the Flask app.
 | [`app.py`](app.py) | Flask web server | Loads the trained model once at startup; exposes `/` (UI) and `/predict` (inference API). |
 | [`templates/index.html`](templates/index.html) | Browser UI (markup only) | Structure only — no inline CSS/JS. Pulls in the two files below via `url_for('static', ...)`. |
 | [`static/css/style.css`](static/css/style.css) | Styling | All presentation (layout, color, dark-mode via `prefers-color-scheme`, animations). |
-| [`static/js/main.js`](static/js/main.js) | Client behavior | Drag-and-drop handling, `fetch('/predict')`, rendering the result panel and probability bars. |
+| [`static/js/main.js`](static/js/main.js) | Client behavior | Drag-and-drop handling, in-browser audio preview playback, microphone recording + client-side WebM→WAV conversion, `fetch('/predict')`, rendering the result panel and probability bars. |
 | `best_model.h5` | Trained weights | Keras `.h5` checkpoint saved by `ModelCheckpoint` during training. |
 | `label_encoder.pkl` | Class label mapping | `sklearn.LabelEncoder`, fit once during training, reused at inference to turn model output indices back into emotion names. |
 | `X_features.npy` / `y_labels.npy` | Full extracted feature set | Output of `prepare_data.py`, input to `training.py`. |
@@ -81,7 +83,13 @@ sequenceDiagram
     U->>F: GET /
     F-->>U: render_template(index.html)
 
-    U->>U: user selects/drops an audio file (.wav/.mp3/.ogg/.flac)
+    alt user uploads/drops a file
+        U->>U: user selects/drops an audio file (.wav/.mp3/.ogg/.flac)
+    else user records from microphone
+        U->>U: getUserMedia() + MediaRecorder → WebM/Opus blob
+        U->>U: decodeAudioData() + manual WAV re-encode (Web Audio API)<br/>keeps the app FFmpeg-free — backend only ever sees a WAV
+    end
+    U->>U: browser plays it back locally via URL.createObjectURL()<br/>(no request to F — purely client-side preview)
     U->>F: POST /predict (multipart file "audio")
     F->>F: check extension against ALLOWED_EXTENSIONS<br/>400 + JSON error if unsupported
     F->>F: save upload to uploads/<filename>
@@ -121,6 +129,22 @@ Key points about `app.py` as currently written:
   `{"error": ...}` message the frontend already knows how to render. One caveat: some
   exceptions (e.g. `audioread.exceptions.NoBackendError`) have an empty `str()`, so the
   handler falls back to the exception class name when the message itself is blank.
+- **Microphone recording is entirely client-side, no server changes.** `MediaRecorder`
+  captures audio as WebM/Opus (or whatever the browser defaults to), which `libsndfile`
+  cannot decode and which would otherwise require FFmpeg — the same gap identified for
+  M4A/AAC. Instead, `static/js/main.js` decodes the recorded blob via
+  `AudioContext.decodeAudioData()` and manually re-encodes a standard 44-byte-header PCM WAV
+  in-browser (`audioBufferToWavBlob()`), so the backend receives an ordinary WAV upload and
+  needs no awareness that the source was a live recording. Verified end-to-end by substituting
+  a synthetic `MediaStreamDestination` tone for `getUserMedia()` (the actual OS mic-permission
+  dialog can't be automated in a test harness) and confirming the resulting WAV round-trips
+  through `/predict` correctly.
+- **Recording requires a secure context.** `getUserMedia` only works over HTTPS or on
+  `localhost` — this works today because the dev server is `127.0.0.1`, but will need HTTPS
+  once deployed (relevant for the eventual Hugging Face Spaces/Render deployment).
+- A hard cap (`MAX_RECORD_SECONDS = 60`) auto-stops any recording left running. Note the
+  model itself only ever reads the first 3 seconds of whatever clip it receives regardless of
+  length, so anything recorded beyond that is captured but has no effect on the prediction.
 
 ## Known coupling / fragility (relevant before touching the ML side)
 

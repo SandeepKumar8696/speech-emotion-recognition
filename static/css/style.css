@@ -55,6 +55,25 @@ p.sub{ color:var(--muted); margin:0; font-size:14px; line-height:1.5; }
 }
 input[type=file]{ display:none; }
 
+.or-divider{
+  text-align:center; font-size:11px; color:var(--muted);
+  margin:10px 0; text-transform:uppercase; letter-spacing:0.05em;
+}
+
+.record-btn{
+  width:100%; display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:12px; border:1.5px solid var(--line); border-radius:10px;
+  background:transparent; color:var(--ink); font-size:13px; font-weight:600;
+  cursor:pointer; transition:border-color .15s ease, background .15s ease, color .15s ease;
+}
+.record-btn:hover:not(:disabled){ border-color:var(--accent); background:var(--accent-soft); }
+.record-btn:disabled{ opacity:.5; cursor:not-allowed; font-weight:400; }
+.record-btn.recording{
+  border-color:var(--danger); background:var(--danger-soft); color:var(--danger);
+}
+.record-btn.recording .record-icon{ animation:record-pulse 1s ease-in-out infinite; }
+@keyframes record-pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+
 .file-chip{
   display:none; align-items:center; justify-content:space-between; gap:10px;
   margin-top:12px; padding:10px 14px;
@@ -67,6 +86,11 @@ input[type=file]{ display:none; }
   border:none; background:none; padding:0 2px;
 }
 .file-chip .clear:hover{ color:var(--danger); }
+
+.audio-preview{
+  display:none; width:100%; margin-top:10px; height:36px;
+  accent-color:var(--accent); border-radius:8px;
+}
 
 button.primary{
   margin-top:20px; width:100%; padding:14px;

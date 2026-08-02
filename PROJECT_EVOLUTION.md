@@ -1,0 +1,119 @@
+# Project Evolution — Speech Emotion Recognition
+
+*This document is for anyone picking up this project after the fact — the original author
+coming back to it, a new contributor, or an interviewer trying to understand the work. It
+does not describe what the system is (see [FUNCTIONAL_SYNOPSIS.md](FUNCTIONAL_SYNOPSIS.md))
+or how it's built (see [ARCHITECTURE.md](ARCHITECTURE.md)). It describes how the project got
+from its original state to its current one, in order, and why each change happened —
+grounded in the actual git history, not a reconstructed narrative.*
+
+## Then vs. now
+
+| | Original state | Current state |
+|---|---|---|
+| Could a stranger run it? | No — hardcoded personal file paths (`C:/Users/sandeep kumar/Downloads/...`) crashed on any other machine | Yes — paths resolve relative to the script |
+| Dev server stability | Flask's debug reloader silently left orphaned processes holding the port after restarts | Reloader disabled; single clean process per run |
+| Frontend code | One HTML file with everything inlined (~170 lines of mixed markup/CSS/JS) | Markup, styling, and behavior in separate files (`templates/`, `static/css/`, `static/js/`) |
+| Audio format support | WAV only, and only as an unenforced client-side hint | WAV/MP3/OGG/FLAC, validated server-side, with clean error handling on decode failure |
+| Input methods | File upload only | File upload **or** live microphone recording |
+| Audio review before predicting | None — upload and hope | In-browser playback of the selected/recorded clip first |
+| Documentation | A single marketing-style README | README + `ARCHITECTURE.md` (technical) + `FUNCTIONAL_SYNOPSIS.md` (functional) + this document |
+| Dependency management | No `requirements.txt` despite the README referencing one | Pinned `requirements.txt`, isolated `venv`, `.gitignore` |
+| Version control hygiene | Direct commits to `main`, no branch isolation | Feature branch (`local-setup-and-fixes`) off `main`, real commit messages explaining *why* |
+
+## Phase-by-phase history
+
+### Phase 0 — Inherited state
+*(commits `7462cc8` → `96a195f`, 2026-07-16)*
+
+The project as originally built: four Colab notebooks (`prepare_data.py`, `training.py`,
+`evaluate_model.py` — saved with `.py` extensions but actually notebook JSON), a trained
+model (`best_model.h5`, `label_encoder.pkl`), and a Flask demo (`app.py` +
+`templates/index.html`). It worked, but only on the original author's machine — the model and
+label-encoder paths were hardcoded to a personal `Downloads` folder, there was no
+`requirements.txt`, and the entire frontend was one HTML file with inline CSS and JS.
+
+### Phase 1 — Local environment setup & critical bug fixes
+*(commit `07286ab`, 2026-07-31)*
+
+Before anything else could be improved, the project had to actually run. This phase:
+- Created an isolated `venv` and a real `requirements.txt` (previously undocumented)
+- Fixed the hardcoded `MODEL_PATH`/`LABEL_ENCODER_PATH` to resolve relative to the script's
+  own location — the single change that made the project runnable on any machine, not just
+  the original author's
+- Disabled Flask's debug auto-reloader (`use_reloader=False`) after tracing a recurring
+  "browser hangs forever" symptom back to orphaned server processes the reloader left running
+  on Windows
+- Established a feature branch (`local-setup-and-fixes`) off `main`, so none of this work
+  touched the original branch directly
+
+### Phase 2 — UI redesign
+*(part of commit `07286ab`)*
+
+The original single-file page was rebuilt from scratch: a proper card layout, light/dark
+theme support via `prefers-color-scheme`, animated probability bars, emotion emoji, and a
+clearer file-selection state — replacing what was there before rather than patching it.
+
+### Phase 3 — Code structure & first documentation
+*(commit `1994313`, 2026-07-31)*
+
+- Split the (by now large) inline `<style>`/`<script>` blocks out of `index.html` into
+  `static/css/style.css` and `static/js/main.js`, served via Flask's default static-folder
+  convention — a pure maintainability change, no behavior change
+- Introduced `ARCHITECTURE.md`: the project's first structured technical documentation
+  beyond the README, with component tables and diagrams
+
+### Phase 4 — Multi-format audio support
+*(commit `7f88b9d`, 2026-07-31)*
+
+- A feasibility study was done **before** writing any code: empirically verified (by actually
+  writing and reading test files, not by assuming from documentation) that `soundfile`/
+  `libsndfile` already decode MP3/OGG/FLAC with zero new dependencies, while M4A/AAC would
+  require introducing FFmpeg as a system-level dependency — a cost judged not worth paying yet
+- Implemented the supported tier: a server-side extension allow-list, and proper exception
+  handling in `/predict` (previously a bare `try/finally` with no `except` let any decode
+  failure surface as an uncaught 500 with a raw traceback)
+- Introduced `FUNCTIONAL_SYNOPSIS.md` as a second, deliberately non-technical document
+- Established the standing rule this project now follows: every code change updates both
+  docs in the same pass, proactively
+
+### Phase 5 — In-browser audio preview
+*(current session, not yet committed at time of writing)*
+
+Added a native `<audio controls>` player, populated via `URL.createObjectURL()` whenever a
+file is selected, dropped, or recorded — so a user can confirm they have the right clip
+before spending a prediction on it.
+
+### Phase 6 — Microphone recording
+*(current session, not yet committed at time of writing)*
+
+- Added live in-browser recording via `getUserMedia` + `MediaRecorder`
+- The key technical decision: `MediaRecorder` produces WebM/Opus, which `libsndfile` cannot
+  decode and which would otherwise reopen the FFmpeg question settled in Phase 4. Instead, the
+  recorded audio is decoded and re-encoded to a plain WAV file **entirely client-side** via the
+  Web Audio API before it's ever sent to the server — so from the backend's point of view, a
+  live recording and a WAV upload are indistinguishable, and the "no FFmpeg" constraint holds
+- A 60-second hard auto-stop cap was added as a safety net against runaway recordings (the
+  model itself only ever reads the first 3 seconds of any clip regardless of length)
+- Verified end-to-end by substituting a synthetic tone-generating `MediaStream` for
+  `getUserMedia()` (the one part of this that can't be automated is the OS-level microphone
+  permission dialog itself) and confirming the converted recording round-trips through
+  `/predict` correctly
+
+## Where this is headed
+
+Identified but not yet built, in the order they were prioritized during planning:
+
+1. **Model upgrade** — replace the mean-pooled-MFCC + LSTM approach (which structurally
+   discards the temporal information an LSTM exists to use) with a pretrained speech
+   embedding (wav2vec2/HuBERT), directly addressing both the accuracy ceiling and the dated
+   feature-extraction technique
+2. **Cross-corpus evaluation** — train on 3 of the 4 datasets, evaluate on the 4th held out
+   entirely, to get an honest generalization number instead of the current random-split metric
+3. **Live deployment** — a public, clickable demo (Hugging Face Spaces or Render), since the
+   project has been local-only through all of the phases above
+4. **Baseline comparison, automated tests, CI** — supporting rigor once the above land
+5. **Differentiating angles under consideration**: a fairness/demographic audit (CREMA-D ships
+   actor demographic metadata), an honest acted-vs-spontaneous-speech generalization check,
+   and an in-app explainability panel — all flagged as rare-at-this-project-tier rather than
+   claims of research novelty

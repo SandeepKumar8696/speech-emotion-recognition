@@ -14,16 +14,26 @@
       <p class="sub">Upload a short audio clip and the model will predict the speaker's emotion from its acoustic features.</p>
     </div>
 
-    <label class="dropzone" id="dropzone" for="audioInput">
-      <div class="dz-icon">📁</div>
-      <div><strong>Click to upload</strong> or drag a file here</div>
-      <div class="dz-formats">WAV, MP3, OGG, or FLAC</div>
-    </label>
-    <input type="file" id="audioInput" accept=".wav,.mp3,.ogg,.flac">
+    <div id="pickerArea">
+      <label class="dropzone" id="dropzone" for="audioInput">
+        <div class="dz-icon">📁</div>
+        <div><strong>Click to upload</strong> or drag a file here</div>
+        <div class="dz-formats">WAV, MP3, OGG, or FLAC</div>
+      </label>
+      <input type="file" id="audioInput" accept=".wav,.mp3,.ogg,.flac">
+
+      <div class="or-divider">or</div>
+      <button type="button" class="record-btn" id="recordBtn">
+        <span class="record-icon" id="recordIcon">🎤</span>
+        <span id="recordLabel">Record from microphone</span>
+      </button>
+    </div>
+
     <div class="file-chip" id="fileChip">
       <span class="name" id="fileName"></span>
       <button type="button" class="clear" id="clearFile" aria-label="Remove file">✕</button>
     </div>
+    <audio id="audioPreview" class="audio-preview" controls preload="metadata"></audio>
 
     <button class="primary" id="predictBtn" disabled>
       <span class="spinner" id="spinner"></span>
