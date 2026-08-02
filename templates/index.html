@@ -33,7 +33,12 @@
       <span class="name" id="fileName"></span>
       <button type="button" class="clear" id="clearFile" aria-label="Remove file">✕</button>
     </div>
-    <audio id="audioPreview" class="audio-preview" controls preload="metadata"></audio>
+    <div class="waveform-player" id="waveformPlayer">
+      <button type="button" class="wf-play-btn" id="wfPlayBtn" aria-label="Play">▶</button>
+      <canvas class="waveform-canvas" id="waveformCanvas"></canvas>
+      <span class="wf-time" id="wfTime">0:00</span>
+    </div>
+    <audio id="audioPreview" preload="metadata" style="display:none"></audio>
 
     <button class="primary" id="predictBtn" disabled>
       <span class="spinner" id="spinner"></span>

@@ -16,7 +16,7 @@ grounded in the actual git history, not a reconstructed narrative.*
 | Frontend code | One HTML file with everything inlined (~170 lines of mixed markup/CSS/JS) | Markup, styling, and behavior in separate files (`templates/`, `static/css/`, `static/js/`) |
 | Audio format support | WAV only, and only as an unenforced client-side hint | WAV/MP3/OGG/FLAC, validated server-side, with clean error handling on decode failure |
 | Input methods | File upload only | File upload **or** live microphone recording |
-| Audio review before predicting | None — upload and hope | In-browser playback of the selected/recorded clip first |
+| Audio review before predicting | None — upload and hope | Interactive waveform player: playback, click-to-seek, and progress visualized on the clip's own amplitude shape |
 | Documentation | A single marketing-style README | README + `ARCHITECTURE.md` (technical) + `FUNCTIONAL_SYNOPSIS.md` (functional) + this document |
 | Dependency management | No `requirements.txt` despite the README referencing one | Pinned `requirements.txt`, isolated `venv`, `.gitignore` |
 | Version control hygiene | Direct commits to `main`, no branch isolation | Feature branch (`local-setup-and-fixes`) off `main`, real commit messages explaining *why* |
@@ -78,14 +78,14 @@ clearer file-selection state — replacing what was there before rather than pat
   docs in the same pass, proactively
 
 ### Phase 5 — In-browser audio preview
-*(current session, not yet committed at time of writing)*
+*(commit `879878f`, 2026-08-02)*
 
 Added a native `<audio controls>` player, populated via `URL.createObjectURL()` whenever a
 file is selected, dropped, or recorded — so a user can confirm they have the right clip
-before spending a prediction on it.
+before spending a prediction on it. (Superseded by the custom waveform player in Phase 7.)
 
 ### Phase 6 — Microphone recording
-*(current session, not yet committed at time of writing)*
+*(commit `879878f`, 2026-08-02)*
 
 - Added live in-browser recording via `getUserMedia` + `MediaRecorder`
 - The key technical decision: `MediaRecorder` produces WebM/Opus, which `libsndfile` cannot
@@ -99,6 +99,25 @@ before spending a prediction on it.
   `getUserMedia()` (the one part of this that can't be automated is the OS-level microphone
   permission dialog itself) and confirming the converted recording round-trips through
   `/predict` correctly
+
+### Phase 7 — Waveform player, for a more premium feel
+*(current session, not yet committed at time of writing)*
+
+- Replaced the native `<audio controls>` player from Phase 5 with a custom canvas-based
+  waveform: amplitude peaks are extracted once via `AudioContext.decodeAudioData()`
+  (`computePeaks()`), then rendered as bars that fill in with the accent color as playback
+  progresses — the same visual pattern used by SoundCloud/Spotify-style players
+- Added click-to-seek directly on the waveform (click position maps proportionally to
+  `audioPreview.currentTime`)
+- The underlying `<audio>` element is kept, just visually hidden — it remains the actual
+  playback engine (play/pause/seek), while the canvas is a synced visualization layer on top,
+  so a waveform-generation failure degrades gracefully to "plays fine, just no visual" rather
+  than breaking playback
+- Verified interactively end-to-end (not just by reading the code): rendered a waveform from
+  a synthetic clip with a deliberately varying amplitude envelope, confirmed play/pause,
+  click-to-seek at an arbitrary point, and correct end-of-playback state (whole waveform
+  shows "played" color, not reset to empty) — plus confirmed it still works for
+  microphone-recorded audio and doesn't affect the `/predict` flow
 
 ## Where this is headed
 

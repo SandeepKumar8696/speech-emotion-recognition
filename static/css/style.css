@@ -87,9 +87,22 @@ input[type=file]{ display:none; }
 }
 .file-chip .clear:hover{ color:var(--danger); }
 
-.audio-preview{
-  display:none; width:100%; margin-top:10px; height:36px;
-  accent-color:var(--accent); border-radius:8px;
+.waveform-player{
+  display:none; align-items:center; gap:10px;
+  margin-top:10px; padding:8px 12px;
+  background:var(--accent-soft); border-radius:10px;
+}
+.wf-play-btn{
+  flex-shrink:0; width:32px; height:32px; border-radius:50%;
+  border:none; background:var(--accent); color:#fff;
+  font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:background .15s ease;
+}
+.wf-play-btn:hover{ background:var(--accent-dark); }
+.waveform-canvas{ flex:1; width:100%; height:40px; display:block; cursor:pointer; }
+.wf-time{
+  flex-shrink:0; font-size:11px; color:var(--muted); min-width:74px; text-align:right;
+  font-variant-numeric:tabular-nums;
 }
 
 button.primary{

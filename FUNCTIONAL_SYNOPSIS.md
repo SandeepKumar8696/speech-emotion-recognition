@@ -23,9 +23,10 @@ feature engineering or model knowledge required from the end user.
 - Alternatively, lets the user **record directly from their microphone** in-browser — no
   separate recording app or file needed. The recording is converted to a standard WAV clip
   entirely on the client side before being sent, so it's treated identically to an upload.
-- Lets the user **play back the selected or recorded clip in-browser** (native player with
-  play/pause, seek, and duration) before running a prediction, so they can confirm it's the
-  right audio — this playback is entirely local and never touches the server
+- Lets the user **play back the selected or recorded clip in-browser** via a custom waveform
+  player — visualizing the clip's amplitude as a clickable waveform, with playback progress
+  highlighted directly on it and click-to-seek — before running a prediction, so they can
+  confirm it's the right audio. This preview is entirely local and never touches the server.
 - Analyzes roughly a 3-second window of the clip's acoustic characteristics
 - Returns one of 8 emotion labels, a confidence percentage for the top prediction, and a
   full breakdown of the model's probability across all 8 classes
