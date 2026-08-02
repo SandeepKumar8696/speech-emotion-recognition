@@ -46,6 +46,21 @@
     </button>
     <div class="hint" id="hint"></div>
 
+    <div class="loading-steps" id="loadingSteps">
+      <div class="loading-step" data-step="upload">
+        <span class="step-icon"></span><span>Uploading audio</span>
+      </div>
+      <div class="loading-step" data-step="extract">
+        <span class="step-icon"></span><span>Extracting acoustic features</span>
+      </div>
+      <div class="loading-step" data-step="model">
+        <span class="step-icon"></span><span>Running emotion model</span>
+      </div>
+      <div class="loading-step" data-step="finalize">
+        <span class="step-icon"></span><span>Finalizing results</span>
+      </div>
+    </div>
+
     <div id="result">
       <div class="emotion-row">
         <div class="emotion-emoji" id="emotionEmoji"></div>

@@ -101,7 +101,7 @@ before spending a prediction on it. (Superseded by the custom waveform player in
   `/predict` correctly
 
 ### Phase 7 — Waveform player, for a more premium feel
-*(current session, not yet committed at time of writing)*
+*(commit `5fd3f9c`, 2026-08-02)*
 
 - Replaced the native `<audio controls>` player from Phase 5 with a custom canvas-based
   waveform: amplitude peaks are extracted once via `AudioContext.decodeAudioData()`
@@ -118,6 +118,46 @@ before spending a prediction on it. (Superseded by the custom waveform player in
   click-to-seek at an arbitrary point, and correct end-of-playback state (whole waveform
   shows "played" color, not reset to empty) — plus confirmed it still works for
   microphone-recorded audio and doesn't affect the `/predict` flow
+
+### Phase 8 — Staged loading sequence
+*(current session, not yet committed at time of writing)*
+
+- Replaced the plain spinner-and-"Analyzing…" state with a 4-step checklist (Uploading →
+  Extracting acoustic features → Running emotion model → Finalizing results), each step
+  transitioning from pending → spinning → checkmark
+- Important honesty note captured in `ARCHITECTURE.md`: since `/predict` is a single
+  synchronous request with no progress-streaming endpoint, these stages are **simulated on a
+  client-side timer**, not driven by real backend telemetry. The timing is tuned to look
+  natural for a typical (sub-second, post-warm-up) request, and the last stage simply holds
+  — still animating — for as long as the real response actually takes, so it never looks
+  frozen even during the ~30s first-call warm-up
+- Verified deterministically: rather than relying on wall-clock observation (tool round-trip
+  latency in the test harness alone exceeds the real warm-up time, making timing races
+  unreliable to observe), the stage-transition logic was snapshotted at fixed checkpoints
+  (50ms/600ms/1.6s/3.6s/5s) independent of any real network call, confirming the sequence
+  advances correctly and holds indefinitely on the last stage rather than glitching
+
+### Phase 9 — Smoother loading→result handoff
+*(current session, not yet committed at time of writing)*
+
+- Fixed a "flash cut" feel: the loading checklist and result panel previously toggled via
+  raw `display:none`/`display:block` with no transition, and worse, the two panels'
+  visibility briefly overlapped (the result was set to `display:block` immediately, while the
+  completed checklist was still visible for another 350ms), producing a jarring double-flash
+  rather than one clean handoff
+- Restructured `stopLoadingStages()` to accept an `onHidden` callback that only fires once the
+  checklist has actually faded out and been removed from layout — the result panel now reveals
+  itself (`renderResult()` + `showResult()`) strictly *after* that, never overlapping
+- Added real CSS transitions: the checklist fades out (`opacity`), and the result panel
+  fades and slides up into place (`opacity` + `transform: translateY`), with the emotion
+  emoji popping in with a slight overshoot easing. The Predict button now stays disabled for
+  the entire handoff (previously it re-enabled the instant the network response arrived, before
+  the visual transition had even started, so a second click could land mid-transition)
+- Verified via genuine separate tool round-trips (not a single synchronous script, which
+  produced a misleading same-tick artifact during initial debugging) that the panel's
+  "hidden" computed state is truly `opacity:0` and the "shown" state is truly `opacity:1` with
+  `transform` reset — i.e. there is a real before/after state for the browser's transition
+  engine to interpolate between, not an instant jump disguised as a transition
 
 ## Where this is headed
 

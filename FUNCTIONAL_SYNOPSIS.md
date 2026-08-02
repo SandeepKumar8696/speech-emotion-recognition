@@ -27,9 +27,13 @@ feature engineering or model knowledge required from the end user.
   player — visualizing the clip's amplitude as a clickable waveform, with playback progress
   highlighted directly on it and click-to-seek — before running a prediction, so they can
   confirm it's the right audio. This preview is entirely local and never touches the server.
-- Analyzes roughly a 3-second window of the clip's acoustic characteristics
+- Analyzes roughly a 3-second window of the clip's acoustic characteristics, showing a
+  staged progress checklist (uploading → extracting features → running the model →
+  finalizing) while it works, rather than a single unexplained spinner
 - Returns one of 8 emotion labels, a confidence percentage for the top prediction, and a
-  full breakdown of the model's probability across all 8 classes
+  full breakdown of the model's probability across all 8 classes — revealed with a gentle
+  fade/slide-in once the checklist completes, rather than an abrupt cut from one panel to
+  the next
 - Runs entirely locally — no external API calls, no cloud inference dependency
 
 **What it does not do:** transcribe speech, understand word meaning or sentiment from

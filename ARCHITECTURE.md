@@ -16,7 +16,7 @@ see [PROJECT_EVOLUTION.md](PROJECT_EVOLUTION.md).
 | [`app.py`](app.py) | Flask web server | Loads the trained model once at startup; exposes `/` (UI) and `/predict` (inference API). |
 | [`templates/index.html`](templates/index.html) | Browser UI (markup only) | Structure only — no inline CSS/JS. Pulls in the two files below via `url_for('static', ...)`. |
 | [`static/css/style.css`](static/css/style.css) | Styling | All presentation (layout, color, dark-mode via `prefers-color-scheme`, animations). |
-| [`static/js/main.js`](static/js/main.js) | Client behavior | Drag-and-drop handling, canvas waveform rendering + click-to-seek playback, microphone recording + client-side WebM→WAV conversion, `fetch('/predict')`, rendering the result panel and probability bars. |
+| [`static/js/main.js`](static/js/main.js) | Client behavior | Drag-and-drop handling, canvas waveform rendering + click-to-seek playback, microphone recording + client-side WebM→WAV conversion, a simulated multi-stage loading sequence, `fetch('/predict')`, rendering the result panel and probability bars. |
 | `best_model.h5` | Trained weights | Keras `.h5` checkpoint saved by `ModelCheckpoint` during training. |
 | `label_encoder.pkl` | Class label mapping | `sklearn.LabelEncoder`, fit once during training, reused at inference to turn model output indices back into emotion names. |
 | `X_features.npy` / `y_labels.npy` | Full extracted feature set | Output of `prepare_data.py`, input to `training.py`. |
@@ -111,6 +111,23 @@ Key points about `app.py` as currently written:
 - The model and label encoder are loaded **once at import time**, not per-request — this is
   why the very first request after starting the server is slow (TensorFlow warm-up) but
   subsequent ones are fast.
+- **The predict-button loading sequence is simulated on the client, not driven by real
+  backend progress.** `/predict` is one synchronous request/response with no streaming or
+  progress endpoint, so the frontend cannot actually know which stage the server is in. The
+  4-stage checklist (`Uploading → Extracting features → Running model → Finalizing`) advances
+  on fixed client-side timers tuned to look natural for a typical fast request, and the final
+  stage simply holds (still animating, not frozen) for however long the real response
+  actually takes — including the ~30s first-call warm-up case. If a real progress API is ever
+  added server-side, this is the piece that would need replacing with genuine progress events.
+- **The loading→result handoff is explicitly sequenced, not two independent toggles.**
+  `stopLoadingStages(success, onHidden)` holds the completed checklist briefly, fades it out
+  (CSS opacity transition), and only *then* invokes `onHidden` — which populates and reveals
+  the result panel (`renderResult()` + `showResult()`), itself a fade/slide-in rather than an
+  instant `display` swap. The Predict button stays disabled for the whole handoff (re-enabled
+  inside the same callback), so a second click can't land mid-transition and overlap the two
+  panels' states. `showResult()` uses the standard force-reflow-then-`requestAnimationFrame`
+  technique (`display:block` → read `offsetWidth` → add the `.visible` class next frame) since
+  a CSS transition cannot animate across a `display:none` boundary in one step.
 - Each upload is written to disk (`uploads/`) and deleted immediately after inference
   (`finally: os.remove(filepath)`), so nothing persists between requests.
 - The Flask dev server runs with `debug=True, use_reloader=False` (the reloader was disabled
