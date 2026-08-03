@@ -108,6 +108,30 @@ function renderResult(data){
       row.querySelector('.bar-fill').style.width = pct + '%';
     });
   }
+
+  renderVoiceStats(data.voice_stats);
+}
+
+const voiceStats = document.getElementById('voiceStats');
+const voiceStatsNote = document.getElementById('voiceStatsNote');
+
+function renderVoiceStats(stats){
+  if (!stats) {
+    // Voice stats are supplementary — if the backend couldn't compute them for some
+    // clip, just hide the section rather than show empty/broken tiles.
+    voiceStats.style.display = 'none';
+    voiceStatsNote.style.display = 'none';
+    return;
+  }
+  voiceStats.style.display = 'grid';
+  voiceStatsNote.style.display = 'block';
+
+  document.getElementById('statDuration').textContent = `${stats.duration_sec} sec`;
+  document.getElementById('statRate').textContent = `~${stats.speaking_rate_wpm} WPM`;
+  document.getElementById('statPitch').textContent =
+    stats.pitch_hz !== null ? `${stats.pitch_hz} Hz` : '—';
+  document.getElementById('statEnergy').textContent = stats.energy;
+  document.getElementById('statSilence').textContent = `${stats.silence_pct}%`;
 }
 
 btn.addEventListener('click', async () => {

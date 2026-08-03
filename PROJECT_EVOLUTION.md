@@ -17,6 +17,7 @@ grounded in the actual git history, not a reconstructed narrative.*
 | Audio format support | WAV only, and only as an unenforced client-side hint | WAV/MP3/OGG/FLAC, validated server-side, with clean error handling on decode failure |
 | Input methods | File upload only | File upload **or** live microphone recording |
 | Audio review before predicting | None — upload and hope | Interactive waveform player: playback, click-to-seek, and progress visualized on the clip's own amplitude shape |
+| Result output | Emotion label + confidence, based on only the clip's first 3 seconds | Emotion + confidence based on the **whole clip** (windowed + duration-weighted across its full length), plus a voice-statistics panel (duration, pitch, energy, silence%, estimated speaking rate) |
 | Documentation | A single marketing-style README | README + `ARCHITECTURE.md` (technical) + `FUNCTIONAL_SYNOPSIS.md` (functional) + this document |
 | Dependency management | No `requirements.txt` despite the README referencing one | Pinned `requirements.txt`, isolated `venv`, `.gitignore` |
 | Version control hygiene | Direct commits to `main`, no branch isolation | Feature branch (`local-setup-and-fixes`) off `main`, real commit messages explaining *why* |
@@ -160,7 +161,7 @@ before spending a prediction on it. (Superseded by the custom waveform player in
   engine to interpolate between, not an instant jump disguised as a transition
 
 ### Phase 10 — Split the frontend by concern (JS modules + matching CSS)
-*(current session, not yet committed at time of writing)*
+*(commit `96f1c9b`, 2026-08-03)*
 
 By this point `static/js/main.js` had grown to ~460 lines covering five genuinely different
 concerns (file picker, waveform player, mic recording, loading checklist, result rendering)
@@ -187,6 +188,170 @@ explicitly, in separation-of-concerns terms, as more UI work was still to come.
   itself required: `setFile()` is no longer a global, so testing had to simulate real
   `<input>` `change` events instead of calling it directly — which is itself a sign the split
   achieved real encapsulation rather than just moving code around
+
+### Phase 11 — Voice statistics panel
+*(current session, not yet committed at time of writing)*
+
+Added a small "voice statistics" panel to the result view: Speech Duration, Speaking Rate,
+Pitch, Energy, and Silence%, shown as a tile grid alongside the emotion prediction.
+
+- Before implementing, checked which of the five requested metrics were honestly
+  computable: Duration, Pitch, Energy, and Silence% are all standard, well-established
+  signal-processing measurements (`librosa`) with no real ambiguity. **Speaking Rate (WPM)
+  was different** — true words-per-minute requires knowing how many *words* were spoken,
+  which needs actual speech-to-text, a capability this app has never had. Rather than
+  silently fabricate a precise-looking number, this was raised explicitly as a decision:
+  real ASR (accurate, but a meaningfully heavier new dependency + latency) vs. an acoustic
+  estimate (lighter, consistent with how this project has avoided heavy dependencies
+  elsewhere, but approximate) vs. skipping it. Decision: estimate, clearly labeled as such.
+- Implemented `compute_voice_stats()` in `app.py`, analyzing the *full* clip (a separate,
+  untruncated `librosa.load()`, unlike the model's own 3-second window) — duration, mean
+  pitch (`librosa.yin()` + an energy-relative voiced mask), mean RMS energy (bucketed
+  Low/Medium/High), silence percentage (`librosa.effects.split()`), and the speaking-rate
+  estimate (onset/transient count as a syllable-count proxy, converted to words via the
+  ~1.5-syllables-per-word English average).
+- **Calibrated rather than guessed every threshold**, against synthetic clips with known
+  ground truth: energy Low/Medium/High cutoffs against a sweep of amplitude levels; onset
+  detection's `delta`/`wait` parameters tuned until the detected count matched a synthetic
+  clip's known burst count (16); pitch verified against a synthetic tone at an exact known
+  frequency (220 Hz in, 220.8 Hz / 219.3 Hz out across two methods tested).
+- **Caught a real edge case during testing, not by inspection alone**: `librosa.effects
+  .split()` thresholds silence relative to the clip's own peak amplitude — for a clip
+  that's silent throughout (no real peak to threshold against), it degenerately reports
+  the *entire* clip as non-silent. `compute_voice_stats()` now checks for a near-zero peak
+  first and returns `silence_pct: 100` directly rather than trusting that.
+- **Caught and fixed a real performance issue during prototyping**: the more accurate
+  pitch-tracking method (`librosa.pyin()`) measured ~8x slower than `librosa.yin()` (~7s
+  for a 7s clip — untenable against a 60s max recording). Switched to `yin()` + a simple
+  energy-relative voiced mask, keeping equivalent accuracy at a fraction of the cost —
+  found via direct timing measurement, not assumed.
+- Voice-stats computation is wrapped in its own `try/except` inside `/predict` — a DSP
+  failure there returns `voice_stats: null` (frontend hides that section) without taking
+  down the actual emotion prediction, matching this project's established pattern of
+  never letting a supplementary feature break the core one (same philosophy as the
+  waveform-generation failure handling in Phase 7).
+- Verified end-to-end against the real running server (not just unit-level): confirmed
+  correct values on a realistic synthetic clip (duration, pitch match input tone exactly),
+  a ~31s clip (timing stays negligible, ~0.5s), and a pure-silence clip (all fields
+  degrade sensibly instead of erroring) — plus confirmed the frontend correctly renders
+  all five tiles and hides the whole section gracefully if the backend ever returns
+  `voice_stats: null`.
+
+### Phase 12 — Emotion timeline across the clip
+*(current session, not yet committed at time of writing)*
+
+Added a second analytics feature to the result view: instead of one emotion label for the
+whole clip, a timeline showing how the predicted emotion changes across it — e.g.
+`0.5-3.5 sec: Neutral`, `3.5-6.5 sec: Angry`, `6.5-10.5 sec: Disgust`, `10.5-18 sec: Calm` —
+rendered as a connected-dot vertical list.
+
+- `compute_emotion_timeline()` runs the *same* trained model (no second model, no
+  retraining) across consecutive **3-second** windows spanning the full clip — 3s
+  specifically because that matches the window size the model was actually trained on
+  (`extract_features()`'s own `duration=3`); a different window length would be
+  out-of-distribution input the model has never seen.
+- All windows are stacked and run through **one batched `model.predict()` call**, not a
+  loop of individual predictions — verified this keeps a multi-window clip's added latency
+  in the same ballpark (~0.3s) as the single-window case rather than multiplying per window.
+- Adjacent windows that predict the same label are merged into a single range — this is
+  why real output has variable-length ranges rather than a uniform 3s grid, and why the
+  headline example above has a final range of `10-18 sec` (8 seconds — 2-3 windows that
+  all agreed) rather than another clean 3-second block.
+- Verified the merge logic doesn't over-merge: built a synthetic clip with a
+  `fear → calm → fear` pattern across windows and confirmed the output kept the two `fear`
+  ranges separate rather than merging them together across the intervening `calm` range —
+  merging non-adjacent recurrences would have misrepresented a real change away and back
+  as one continuous span.
+- A trailing partial window shorter than 0.3s is dropped rather than predicted on (not
+  enough signal for a meaningful MFCC); clips too short to produce at least 2 windows
+  return `None` and the frontend hides the section rather than show one row that would
+  just repeat the headline emotion already shown above it. Confirmed this actually
+  triggers correctly in practice, not just in theory — a real test clip where every
+  window happened to predict the same label produced exactly this (a 1-entry timeline,
+  correctly suppressed by the frontend), which on first look could easily have been
+  mistaken for a bug rather than the intended behavior.
+- Shares the same failure-isolation pattern as `voice_stats`: its own independent
+  `try/except` in the route handler, and both share a single `librosa.load()` of the full
+  clip rather than each loading the file separately.
+- **Caught a real bug via actual dogfooding, not by inspection**: after building the
+  feature and trying it, a clip showed the headline result as "Disgust" while the
+  timeline's most common label was "Sad" for the same recording — asked to investigate
+  rather than dismiss it. Root cause: the headline (`extract_features()`) analyzes audio
+  `[0.5s, 3.5s]` (`offset=0.5, duration=3`), while the timeline's windows started at `t=0`
+  (`[0,3), [3,6), ...`) — two genuinely different, merely-overlapping slices of the same
+  clip fed to the identical model. Measured the actual effect rather than assuming: on 20
+  random test clips, shifting the analysis window by exactly 0.5s (no other change)
+  flipped the model's top-1 label in **8 of them (40%)** — confirming this was a frequent,
+  real inconsistency, not a rare fluke. Fixed by starting the timeline's window grid at
+  the same `0.5s` offset (`TIMELINE_START_OFFSET_SEC`); re-ran the same 20-clip test and
+  got **0 mismatches**, including on the exact clip that had flipped before the fix.
+  Separately noted for anyone debugging a *future* headline/timeline disagreement: this
+  fix removes the spurious (misaligned-window) source of disagreement, but real
+  disagreement between two genuinely different, low-confidence windows later in a clip is
+  still expected — that's the model's actual ~55% accuracy ceiling, not a bug, and
+  `disgust` specifically is already documented as one of its weakest classes (0.39 F1).
+- **A brief detour and a second real finding, both from continued dogfooding.** The
+  timeline was momentarily asked to be removed in favor of real speech-to-text, then that
+  was reversed in favor of keeping it — no code was actually pulled before the decision
+  changed. In the same session, checking a real 26-second clip surfaced a second,
+  different observation: the headline read "Disgust" (93.4%), but the *timeline* showed
+  `Angry` occupying the most total time across the clip (10.5s / 41.2% vs. `Disgust`'s
+  9.0s / 35.3%) — tallied precisely rather than eyeballed, and confirmed to sum to exactly
+  the clip's reported 26s duration. This was **not** a repeat of the alignment bug (the
+  headline and the timeline's first segment still agreed exactly, confirming that fix
+  holds) — it's that the headline was never designed to summarize a whole clip, only its
+  first 3 seconds, which only becomes visually confusing once a clip is long enough for
+  the timeline to disagree with that opening snapshot. Presented three options (clarify
+  the label / add a duration-weighted "overall" metric / leave it and just document it);
+  chose the label clarification — added `renderHeadlineScopeNote()` to `predict.js`, which
+  shows "Based on the first 3 seconds of a `{duration}`s clip" whenever `emotion_timeline`
+  is non-null (reusing that field's existing short-clip `None` behavior as the signal,
+  rather than adding a new duration check), so short clips — where the headline *is* the
+  whole clip — show no caveat at all. Verified both branches directly: a 2s clip shows no
+  note, a 10s clip shows "Based on the first 3 seconds of a 10s clip."
+
+### Phase 13 — Removed the emotion timeline; made the headline whole-clip-aware
+*(current session, not yet committed at time of writing)*
+
+Prompted by a direct question after continued dogfooding: "there is a line which says based
+on first 3s. Is the emotion predicted based on only the first 3s? It should be based on the
+whole audio speech right" — followed immediately by "strip off the emotion timeline from the
+project, we are good without it." Both were acted on together, since fixing the first made
+the second the correct call rather than a loss.
+
+- **Confirmed the concern was correct before changing anything.** `extract_features()`
+  loaded exactly `librosa.load(file_path, duration=3, offset=0.5)` — the headline had
+  always been a first-3-seconds snapshot, regardless of how long the uploaded clip was, for
+  every phase up to this one. The `headlineScopeNote` caption added in Phase 12 had been
+  papering over this fact, not fixing it.
+- **Replaced `extract_features()` + a single `model.predict()` call with
+  `predict_over_full_clip()`**: slices the *entire* clip into consecutive 3-second windows
+  (starting at the same 0.5s offset the training recipe uses), runs all windows through the
+  model in one batched call, then combines every window's probability vector into a single
+  verdict via a **duration-weighted average** — a 10s window counts for more than a leftover
+  1.5s sliver. For any clip ≤3.5s this is exactly one window, mathematically identical to
+  the old behavior.
+- **Verified, not assumed, both directions**: for short clips, `predict_over_full_clip()`'s
+  output matched a manual single-window calculation bit-for-bit across several durations
+  (1s, 3s, 3.5s). For long clips, built a synthetic 23-second clip (a 3s tone followed by 20s
+  of distinctly different noise) and confirmed the full-clip prediction genuinely differed
+  from a first-3.5-seconds-only prediction on the same audio — proof the fix isn't a no-op.
+- **Removed the emotion timeline entirely** (`compute_emotion_timeline()` and its
+  `TIMELINE_*` constants in `app.py`; the `emotion-timeline`/`timeline-*` markup and CSS; the
+  `renderEmotionTimeline()`/`formatTimeLabel()` JS). The timeline's whole reason for existing
+  — showing per-window detail because the headline couldn't be trusted to represent the
+  whole clip — evaporated once the headline itself became whole-clip-aware. Its underlying
+  per-window model calls live on inside `predict_over_full_clip()`, just averaged into one
+  number instead of surfaced as a list.
+- **Removed the `headlineScopeNote` caption** (`"Based on the first 3 seconds of a 26s
+  clip"`) for the same reason — there's no longer a scope gap left to caveat.
+- Verified end-to-end after the change: a full regression pass (short clip, long clip,
+  browser round-trip via a real `/predict` request) confirmed the JSON response no longer
+  includes an `emotion_timeline` key, the result panel renders with clean spacing where the
+  timeline used to sit, and zero console errors.
+- Phase 12 above is left intact rather than rewritten, per this document's own principle of
+  reflecting actual history — the timeline was a real, working feature for one session
+  before being superseded by a better fix to the problem it was compensating for.
 
 ## Where this is headed
 

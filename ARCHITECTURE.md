@@ -13,18 +13,18 @@ see [PROJECT_EVOLUTION.md](PROJECT_EVOLUTION.md).
 | [`prepare_data.py`](prepare_data.py) | Builds the training dataset | Combines 4 public corpora, extracts MFCC features. Colab notebook (`.ipynb` content saved with a `.py` extension). |
 | [`training.py`](training.py) | Trains the classifier | Loads the features saved by `prepare_data.py`, trains an LSTM, saves `best_model.h5`. Also a Colab notebook. |
 | [`evaluate_model.py`](evaluate_model.py) | Offline evaluation | Loads the trained model + held-out test split, reports accuracy/F1, plots a confusion matrix. Colab notebook. |
-| [`app.py`](app.py) | Flask web server | Loads the trained model once at startup; exposes `/` (UI) and `/predict` (inference API). |
+| [`app.py`](app.py) | Flask web server | Loads the trained model once at startup; exposes `/` (UI) and `/predict` (inference API + voice statistics: duration, pitch, energy, silence%, estimated speaking rate). Predictions are computed over the **whole clip**, not just its first 3 seconds — see `predict_over_full_clip()` below. |
 | [`templates/index.html`](templates/index.html) | Browser UI (markup only) | Structure only — no inline CSS/JS. Loads 4 stylesheets and one `type="module"` script via `url_for('static', ...)`. |
 | [`static/css/base.css`](static/css/base.css) | Styling — foundation | CSS variables (`:root`), dark-mode overrides via `prefers-color-scheme`, `body`/`.card`/header — shared by every other stylesheet. |
 | [`static/css/upload.css`](static/css/upload.css) | Styling — file picker concern | Dropzone, record button (+ recording-state pulse), file chip. |
 | [`static/css/player.css`](static/css/player.css) | Styling — waveform player concern | Play button, canvas sizing, time readout. |
-| [`static/css/predict.css`](static/css/predict.css) | Styling — predict/result concern | Predict button, spinner, loading checklist, result panel + probability bars. |
+| [`static/css/predict.css`](static/css/predict.css) | Styling — predict/result concern | Predict button, spinner, loading checklist, result panel + probability bars + voice-stats tiles. |
 | [`static/js/main.js`](static/js/main.js) | Composition root | Only imports the 4 feature modules below — no logic of its own. Native ES modules (`type="module"`) resolve the dependency order; listing order here doesn't matter. |
 | [`static/js/utils.js`](static/js/utils.js) | Shared pure helpers | `formatElapsed()`, `mixToMono()` — no DOM access, no dependencies. |
 | [`static/js/waveform.js`](static/js/waveform.js) | Waveform player concern | Canvas rendering, click-to-seek, playback-progress sync. Imports `utils.js` only. |
 | [`static/js/fileUpload.js`](static/js/fileUpload.js) | File selection concern | Dropzone/drag-drop/file-chip/clear button. Owns `selectedFile` (exposed via `getSelectedFile()`), imports `waveform.js`, and announces changes via a `document`-level `'audio:file-changed'` CustomEvent rather than importing whoever needs to react. |
 | [`static/js/recorder.js`](static/js/recorder.js) | Microphone recording concern | `getUserMedia`/`MediaRecorder` + WebM→WAV conversion. Imports `setFile` from `fileUpload.js` and `utils.js`. |
-| [`static/js/predict.js`](static/js/predict.js) | Predict/result concern | Loading checklist, result panel + its fade/slide-in, the `fetch('/predict')` call. Imports `getSelectedFile` from `fileUpload.js`; reacts to `'audio:file-changed'` via the event listener instead of an import, so the dependency graph stays one-directional (no cycle between `fileUpload.js` and `predict.js`). |
+| [`static/js/predict.js`](static/js/predict.js) | Predict/result concern | Loading checklist, result panel + its fade/slide-in, voice-stats tiles, the `fetch('/predict')` call. Imports `getSelectedFile` from `fileUpload.js`; reacts to `'audio:file-changed'` via the event listener instead of an import, so the dependency graph stays one-directional (no cycle between `fileUpload.js` and `predict.js`). |
 | `best_model.h5` | Trained weights | Keras `.h5` checkpoint saved by `ModelCheckpoint` during training. |
 | `label_encoder.pkl` | Class label mapping | `sklearn.LabelEncoder`, fit once during training, reused at inference to turn model output indices back into emotion names. |
 | `X_features.npy` / `y_labels.npy` | Full extracted feature set | Output of `prepare_data.py`, input to `training.py`. |
@@ -53,12 +53,17 @@ flowchart LR
 ```
 
 **Feature extraction detail** (identical logic appears in `prepare_data.py` and is duplicated
-in `app.py`'s `extract_features()` — see Known Coupling below):
+in `app.py`'s `extract_features_from_array()` — see Known Coupling below):
 
 ```python
-y, sr = librosa.load(path, duration=3, offset=0.5)      # 3s window, skip first 0.5s
-mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40).T, axis=0)  # (40,) — time axis is pooled away
+mfcc = np.mean(librosa.feature.mfcc(y=y_segment, sr=sr, n_mfcc=40).T, axis=0)  # (40,) — time axis is pooled away
 ```
+
+The model was trained on 3-second clips loaded with `librosa.load(path, duration=3,
+offset=0.5)` — every training example is a single ~3s window starting 0.5s in. `app.py` no
+longer loads a fixed 3s slice for inference (see `predict_over_full_clip()` below), but the
+`y_segment` fed into `extract_features_from_array()` is still always a ~3s window at heart,
+to stay in-distribution with what the model actually learned.
 
 **Model architecture** (`training.py`):
 
@@ -102,17 +107,19 @@ sequenceDiagram
     U->>F: POST /predict (multipart file "audio")
     F->>F: check extension against ALLOWED_EXTENSIONS<br/>400 + JSON error if unsupported
     F->>F: save upload to uploads/<filename>
-    F->>F: extract_features(): librosa MFCC (same recipe as training)
+    F->>F: librosa.load(filepath) once, full clip<br/>(shared by both analyses below)
     alt decode/inference succeeds
-        F->>M: model.predict(features)
-        M-->>F: softmax probabilities (8,)
-        F->>F: argmax → label_encoder.inverse_transform
-        F-->>U: 200 JSON {emotion, confidence, all_probabilities}
+        F->>F: predict_over_full_clip(): slice the WHOLE clip into<br/>consecutive 3s windows (starting at 0.5s, matching training)
+        F->>M: batched model.predict() over all windows in one call
+        M-->>F: softmax probabilities per window (num_windows, 8)
+        F->>F: duration-weighted average across all windows' probabilities<br/>→ argmax → label_encoder.inverse_transform
+        F->>F: compute_voice_stats(): duration, pitch, energy,<br/>silence%, speaking-rate estimate (own try/except —<br/>failure here doesn't fail the whole request)
+        F-->>U: 200 JSON {emotion, confidence, all_probabilities,<br/>voice_stats}
     else decode fails (corrupt file, unsupported codec variant)
         F-->>U: 400 JSON {error: "Could not process audio file: ..."}
     end
     F->>F: os.remove(filepath)  (temp file cleanup, always runs, in `finally`)
-    U->>U: render emoji + confidence badge + sorted probability bars, or error hint
+    U->>U: render emoji + confidence badge + sorted probability bars<br/>+ voice-stats tiles, or error hint
 ```
 
 Key points about `app.py` as currently written:
@@ -136,7 +143,81 @@ Key points about `app.py` as currently written:
   panels' states. `showResult()` uses the standard force-reflow-then-`requestAnimationFrame`
   technique (`display:block` → read `offsetWidth` → add the `.visible` class next frame) since
   a CSS transition cannot animate across a `display:none` boundary in one step.
-- Each upload is written to disk (`uploads/`) and deleted immediately after inference
+- **Voice statistics (`compute_voice_stats()`) and the emotion prediction now both analyze
+  the full clip**, just via different means: voice stats are plain DSP measurements over
+  the whole waveform (duration/pitch/energy/silence), while the prediction runs the model
+  over the whole clip in 3s windows and combines the results (see `predict_over_full_clip()`
+  below). Both share the single `librosa.load(filepath)` call made once per request.
+  - **Speaking rate is explicitly an estimate, not a real word count.** True WPM needs
+    speech-to-text, which this app doesn't have. It's approximated via onset (energy
+    transient) detection as a proxy for syllable count, converted to words using the
+    commonly-cited English average of ~1.5 syllables/word (`AVG_SYLLABLES_PER_WORD`). The
+    frontend labels it `~143 WPM` (tilde prefix) plus an explicit footnote — this was a
+    deliberate decision (see `PROJECT_EVOLUTION.md` Phase 11) after establishing that real
+    transcription would be a meaningfully heavier addition (new ASR model/dependency,
+    added latency) for one stat.
+  - **Pitch uses `librosa.yin()`, not `pyin()`.** `pyin()` is more accurate (adds a voicing
+    probability) but measured ~8x slower in testing (~7s for a 7s clip — unacceptable
+    against a 60s max recording). `yin()` + a simple relative-energy mask (frames below
+    10% of the clip's peak RMS are treated as unvoiced/silence and excluded from the pitch
+    mean) gets equivalent accuracy at a fraction of the cost.
+  - **Onset-detection parameters (`delta=0.3, wait=7`) were calibrated, not guessed** —
+    tuned against a synthetic clip with a known burst count (16) until the detector's
+    count matched, rather than picked arbitrarily.
+  - **Energy thresholds (`ENERGY_THRESHOLDS = (0.025, 0.09)`) were calibrated empirically**
+    by measuring mean RMS across a sweep of amplitude levels and picking cutoffs that
+    separated them into sensible Low/Medium/High buckets.
+  - **A near-silent clip is handled explicitly, not left to `librosa.effects.split()`'s
+    default behavior.** That function thresholds relative to the clip's own peak amplitude
+    — for a clip with no real peak (near-zero throughout), it degenerately reports the
+    *entire* clip as "non-silent." Testing caught this; `compute_voice_stats()` checks
+    `np.max(np.abs(y)) < 1e-4` first and short-circuits to `silence_pct: 100` instead.
+  - **A DSP failure here can't fail the whole prediction.** `voice_stats` computation is
+    wrapped in its own `try/except` inside the route handler — if it raises, `voice_stats`
+    is simply `None` in the response and the frontend hides that section, but the actual
+    emotion prediction still succeeds.
+  - Measured overhead: ~0.3–0.6s added per request once the model/libraries are warm
+    (tested on 6s, 8.5s, and 31s clips) — negligible next to the existing ~30s first-call
+    warm-up.
+- **`predict_over_full_clip()` makes the headline prediction whole-clip-aware, not a
+  first-3-seconds snapshot.** The model itself only ever accepts one 40-value MFCC vector
+  per call — it has no notion of "a 26-second clip" as a single input, so *something* has
+  to decide what part of a longer clip gets analyzed. The previous implementation
+  (`extract_features()`) simply loaded `duration=3, offset=0.5` and only ever showed the
+  user a verdict on the clip's opening moment, regardless of how long the recording was.
+  `predict_over_full_clip()` instead slices the **entire** clip into consecutive
+  **3-second** windows (`PREDICT_WINDOW_SEC = 3.0` — 3s specifically because that's the
+  window the model was trained on; a different length would be out-of-distribution input),
+  starting at `PREDICT_START_OFFSET_SEC = 0.5` (matching the training recipe's own
+  `offset=0.5`), runs all windows through the model in **one batched `model.predict()`
+  call** (`feats` stacked into shape `(num_windows, 40, 1)`, not one call per window), then
+  combines every window's probability vector into a single verdict via a
+  **duration-weighted average** (`np.average(probs_per_window, weights=window_lengths)`) —
+  so a 10s tail window pulls the final answer more than a leftover 1.5s sliver would. For
+  any clip ≤3.5s this reduces to exactly one window and is mathematically identical to the
+  old single-window behavior — verified directly (`predict_over_full_clip()` vs. manually
+  computing `extract_features_from_array()` on the same short clip, both bit-for-bit
+  matching probabilities). For longer clips, verified that content beyond the first
+  window actually moves the headline: a synthetic 23s clip built from a 3s tone followed by
+  20s of very different noise produced a different top label when the whole clip was
+  analyzed vs. only its first 3.5 seconds.
+  - **This replaces the emotion timeline feature entirely** (previously
+    `compute_emotion_timeline()`, which surfaced the same per-window model predictions as a
+    user-facing list of time ranges). That feature was removed at the same time this fix
+    landed — see `PROJECT_EVOLUTION.md` Phase 13 for why: once the headline itself
+    genuinely reflects the whole clip, the two numbers can no longer visibly "disagree" the
+    way they used to (e.g. a real case where the headline read "Disgust" while the removed
+    timeline's most-common label was "Angry"), so the caption that used to explain that gap
+    (`"Based on the first 3 seconds of a 26s clip"`) is also gone — there's nothing left to
+    caveat.
+  - **A trailing partial window shorter than `PREDICT_MIN_TAIL_SEC = 0.3`s is dropped**
+    rather than predicted on, provided at least one real window already exists — a handful
+    of samples isn't enough signal for a meaningful MFCC. A clip shorter than
+    `PREDICT_START_OFFSET_SEC` itself (<0.5s) falls back to analyzing from the very start
+    rather than the offset, so it still gets exactly one window rather than zero.
+  - Shares the failure-isolation pattern used elsewhere in this endpoint: `voice_stats` is
+    computed in its own `try/except` right after, so a DSP edge case there can't take down
+    the (now more important) core prediction.
   (`finally: os.remove(filepath)`), so nothing persists between requests.
 - The Flask dev server runs with `debug=True, use_reloader=False` (the reloader was disabled
   on this branch — it was spawning orphaned processes that never shut down cleanly on Windows).
@@ -168,9 +249,9 @@ Key points about `app.py` as currently written:
 - **Recording requires a secure context.** `getUserMedia` only works over HTTPS or on
   `localhost` — this works today because the dev server is `127.0.0.1`, but will need HTTPS
   once deployed (relevant for the eventual Hugging Face Spaces/Render deployment).
-- A hard cap (`MAX_RECORD_SECONDS = 60`) auto-stops any recording left running. Note the
-  model itself only ever reads the first 3 seconds of whatever clip it receives regardless of
-  length, so anything recorded beyond that is captured but has no effect on the prediction.
+- A hard cap (`MAX_RECORD_SECONDS = 60`) auto-stops any recording left running. Since
+  `predict_over_full_clip()` analyzes the whole clip in windows (not just the first 3
+  seconds), everything recorded up to that cap genuinely factors into the prediction.
 - **Waveform rendering is a separate, independent decode from playback.** The visible
   `<canvas>` waveform is generated by decoding the selected/recorded file a second time via
   `AudioContext.decodeAudioData()` purely to extract ~120 amplitude peaks (`computePeaks()`);
@@ -221,16 +302,17 @@ loaded as four `<link>` tags rather than one stylesheet.
 
 ## Known coupling / fragility (relevant before touching the ML side)
 
-- **Feature-extraction code is duplicated.** The MFCC recipe in `app.py::extract_features()`
-  must stay byte-for-byte consistent with the one in `prepare_data.py` — there's no shared
-  module. If one changes without the other, inference silently produces garbage (wrong
-  feature distribution, no error thrown).
+- **Feature-extraction code is duplicated.** The MFCC recipe in
+  `app.py::extract_features_from_array()` must stay byte-for-byte consistent with the one in
+  `prepare_data.py` — there's no shared module. If one changes without the other, inference
+  silently produces garbage (wrong feature distribution, no error thrown).
 - **Mean-pooling collapses time before the LSTM sees it.** The model input shape `(40, 1)` is
   a single 40-value vector reshaped to look sequence-like — the LSTM never actually sees
   frame-level temporal structure. This is a real architectural limitation, not just a style
   choice (relevant for the improvement discussion).
-- **No shared config for feature parameters.** `n_mfcc=40`, `duration=3`, `offset=0.5` are
-  hardcoded independently in two files rather than defined once.
+- **No shared config for feature parameters.** `n_mfcc=40` and the `3.0`/`0.5` window
+  size/offset are hardcoded independently in `prepare_data.py` and `app.py` (as
+  `PREDICT_WINDOW_SEC`/`PREDICT_START_OFFSET_SEC`) rather than defined once.
 - **No model versioning.** `best_model.h5` is a single checkpoint with no record of which
   training run / hyperparameters produced it.
 

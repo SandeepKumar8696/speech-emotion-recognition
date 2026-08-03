@@ -27,13 +27,21 @@ feature engineering or model knowledge required from the end user.
   player — visualizing the clip's amplitude as a clickable waveform, with playback progress
   highlighted directly on it and click-to-seek — before running a prediction, so they can
   confirm it's the right audio. This preview is entirely local and never touches the server.
-- Analyzes roughly a 3-second window of the clip's acoustic characteristics, showing a
+- Analyzes the clip's acoustic characteristics across its **entire duration**, showing a
   staged progress checklist (uploading → extracting features → running the model →
   finalizing) while it works, rather than a single unexplained spinner
 - Returns one of 8 emotion labels, a confidence percentage for the top prediction, and a
   full breakdown of the model's probability across all 8 classes — revealed with a gentle
   fade/slide-in once the checklist completes, rather than an abrupt cut from one panel to
-  the next
+  the next. The model itself only ever accepts one ~3-second window per call, so for
+  clips longer than that, the app runs the model across every consecutive 3-second window
+  spanning the whole recording and combines the results into a single duration-weighted
+  verdict — the headline reflects the entire clip, not just its opening moment.
+- Alongside the emotion result, shows **voice statistics** for the whole clip: speech
+  duration, pitch (Hz), energy level (Low/Medium/High), percentage silence, and an
+  *estimated* speaking rate (WPM). The speaking-rate figure is explicitly not a real word
+  count — this app has no speech-to-text — it's approximated from acoustic transients and
+  labeled as an estimate in the UI, rather than presented as more precise than it is.
 - Runs entirely locally — no external API calls, no cloud inference dependency
 
 **What it does not do:** transcribe speech, understand word meaning or sentiment from
@@ -66,10 +74,12 @@ validation performance stopped improving.
 
 **4. Serving predictions on demand.**
 A lightweight **Flask** web server loads the trained model once when it starts up, then
-handles each upload by: extracting the same MFCC fingerprint, running it through the loaded
-model, and returning the result as JSON. The browser-side page (plain HTML/CSS/JS, no
-framework) turns that JSON into the emoji, confidence badge, and probability bars the user
-sees.
+handles each upload by: splitting the clip into consecutive 3-second windows (the model's
+own training window), extracting the same MFCC fingerprint from each, running all of them
+through the loaded model in a single batched call, and combining the per-window results into
+one duration-weighted verdict before returning it as JSON. The browser-side page (plain
+HTML/CSS/JS, no framework) turns that JSON into the emoji, confidence badge, and probability
+bars the user sees.
 
 ## Current Capabilities & Honest Limitations
 
@@ -80,5 +90,7 @@ sees.
 | Best-performing classes | Surprise (0.79 F1), Angry (0.68 F1) |
 | Weakest classes | Disgust (0.39 F1), Happy (0.47 F1) — most often confused with neutral/each other |
 | Supported input formats | WAV, MP3, OGG, FLAC (M4A/AAC not yet supported — would require an FFmpeg system dependency) |
-| Inference latency | First request after server start: ~30s (one-time library warm-up). Subsequent requests: under a second. |
+| Inference latency | First request after server start: ~30s (one-time library warm-up). Subsequent requests: under a second (voice stats add ~0.3–0.6s on top of that once warm, tested up to a 31s clip). |
+| Voice statistics | Duration, pitch, energy, and silence% are directly measured from the signal; speaking rate (WPM) is an acoustic estimate, not real transcription |
+| Prediction scope | The headline analyzes the whole clip (not just its first few seconds): the model runs across every consecutive 3-second window (its own training window) spanning the full recording, and the results are combined into one duration-weighted verdict |
 | Scale | Single-clip, single-user demo — not built for concurrent production traffic |
