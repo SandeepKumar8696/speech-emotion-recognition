@@ -14,9 +14,17 @@ see [PROJECT_EVOLUTION.md](PROJECT_EVOLUTION.md).
 | [`training.py`](training.py) | Trains the classifier | Loads the features saved by `prepare_data.py`, trains an LSTM, saves `best_model.h5`. Also a Colab notebook. |
 | [`evaluate_model.py`](evaluate_model.py) | Offline evaluation | Loads the trained model + held-out test split, reports accuracy/F1, plots a confusion matrix. Colab notebook. |
 | [`app.py`](app.py) | Flask web server | Loads the trained model once at startup; exposes `/` (UI) and `/predict` (inference API). |
-| [`templates/index.html`](templates/index.html) | Browser UI (markup only) | Structure only — no inline CSS/JS. Pulls in the two files below via `url_for('static', ...)`. |
-| [`static/css/style.css`](static/css/style.css) | Styling | All presentation (layout, color, dark-mode via `prefers-color-scheme`, animations). |
-| [`static/js/main.js`](static/js/main.js) | Client behavior | Drag-and-drop handling, canvas waveform rendering + click-to-seek playback, microphone recording + client-side WebM→WAV conversion, a simulated multi-stage loading sequence, `fetch('/predict')`, rendering the result panel and probability bars. |
+| [`templates/index.html`](templates/index.html) | Browser UI (markup only) | Structure only — no inline CSS/JS. Loads 4 stylesheets and one `type="module"` script via `url_for('static', ...)`. |
+| [`static/css/base.css`](static/css/base.css) | Styling — foundation | CSS variables (`:root`), dark-mode overrides via `prefers-color-scheme`, `body`/`.card`/header — shared by every other stylesheet. |
+| [`static/css/upload.css`](static/css/upload.css) | Styling — file picker concern | Dropzone, record button (+ recording-state pulse), file chip. |
+| [`static/css/player.css`](static/css/player.css) | Styling — waveform player concern | Play button, canvas sizing, time readout. |
+| [`static/css/predict.css`](static/css/predict.css) | Styling — predict/result concern | Predict button, spinner, loading checklist, result panel + probability bars. |
+| [`static/js/main.js`](static/js/main.js) | Composition root | Only imports the 4 feature modules below — no logic of its own. Native ES modules (`type="module"`) resolve the dependency order; listing order here doesn't matter. |
+| [`static/js/utils.js`](static/js/utils.js) | Shared pure helpers | `formatElapsed()`, `mixToMono()` — no DOM access, no dependencies. |
+| [`static/js/waveform.js`](static/js/waveform.js) | Waveform player concern | Canvas rendering, click-to-seek, playback-progress sync. Imports `utils.js` only. |
+| [`static/js/fileUpload.js`](static/js/fileUpload.js) | File selection concern | Dropzone/drag-drop/file-chip/clear button. Owns `selectedFile` (exposed via `getSelectedFile()`), imports `waveform.js`, and announces changes via a `document`-level `'audio:file-changed'` CustomEvent rather than importing whoever needs to react. |
+| [`static/js/recorder.js`](static/js/recorder.js) | Microphone recording concern | `getUserMedia`/`MediaRecorder` + WebM→WAV conversion. Imports `setFile` from `fileUpload.js` and `utils.js`. |
+| [`static/js/predict.js`](static/js/predict.js) | Predict/result concern | Loading checklist, result panel + its fade/slide-in, the `fetch('/predict')` call. Imports `getSelectedFile` from `fileUpload.js`; reacts to `'audio:file-changed'` via the event listener instead of an import, so the dependency graph stays one-directional (no cycle between `fileUpload.js` and `predict.js`). |
 | `best_model.h5` | Trained weights | Keras `.h5` checkpoint saved by `ModelCheckpoint` during training. |
 | `label_encoder.pkl` | Class label mapping | `sklearn.LabelEncoder`, fit once during training, reused at inference to turn model output indices back into emotion names. |
 | `X_features.npy` / `y_labels.npy` | Full extracted feature set | Output of `prepare_data.py`, input to `training.py`. |
@@ -173,6 +181,44 @@ Key points about `app.py` as currently written:
   highlighting (played vs. unplayed bars) and click-to-seek both read/write `audioPreview
   .currentTime` directly, so the canvas and the underlying `<audio>` element stay in sync.
 
+## 3. Frontend module structure (separation of concerns)
+
+Each JS/CSS file now maps to exactly one UI concern, rather than one large `main.js` +
+`style.css` holding everything. The dependency graph is deliberately kept **one-directional**
+(no cycles):
+
+```mermaid
+flowchart TD
+    U["utils.js<br/>formatElapsed, mixToMono"]
+    W["waveform.js<br/>canvas render, seek"]
+    F["fileUpload.js<br/>dropzone, file-chip,<br/>getSelectedFile()"]
+    R["recorder.js<br/>getUserMedia, MediaRecorder"]
+    P["predict.js<br/>loading steps, result panel,<br/>fetch('/predict')"]
+
+    U --> W
+    U --> R
+    W --> F
+    F -- "import setFile" --> R
+    F -- "import getSelectedFile" --> P
+    F -. "'audio:file-changed' event<br/>(no import needed)" .-> P
+```
+
+The one deliberate design choice worth calling out: `fileUpload.js` and `predict.js` both need
+to react to each other conceptually (a new file should hide the old result; predicting needs
+to know the current file) — but rather than a circular import between them, `predict.js`
+imports `getSelectedFile()` from `fileUpload.js` (one direction), and `fileUpload.js`
+communicates the "a file changed" fact via a `document.dispatchEvent(new CustomEvent(
+'audio:file-changed'))` that `predict.js` merely listens for. `fileUpload.js` never needs to
+import `predict.js` at all, so the graph has no cycle.
+
+`static/js/main.js` is a thin composition root (`import './waveform.js'; import
+'./fileUpload.js'; ...` — four lines, no logic) — `templates/index.html` only needs one
+`<script type="module" src="...main.js">` tag; native ES module resolution handles loading
+the rest in the correct dependency order regardless of the order they're listed in.
+
+CSS mirrors the same boundaries (`base.css` → `upload.css` / `player.css` / `predict.css`),
+loaded as four `<link>` tags rather than one stylesheet.
+
 ## Known coupling / fragility (relevant before touching the ML side)
 
 - **Feature-extraction code is duplicated.** The MFCC recipe in `app.py::extract_features()`
@@ -195,5 +241,5 @@ Key points about `app.py` as currently written:
 | Feature extraction | Librosa (MFCC) |
 | Model | TensorFlow / Keras (LSTM) |
 | Serving | Flask (dev server) |
-| Frontend | Vanilla HTML/CSS/JS, no build step — served as separate files (`templates/` for markup, `static/css`+`static/js` for styling/behavior) via Flask's default static-folder convention, no bundler needed |
+| Frontend | Vanilla HTML/CSS/JS, no build step — native ES modules (`type="module"`) split by concern across `static/js/`, matching CSS split across `static/css/`, served via Flask's default static-folder convention. No bundler, no transpiler; the browser's own module resolution handles the dependency graph. |
 | Persistence | `.h5` (model), `.pkl` (label encoder), `.npy` (feature arrays) |

@@ -13,7 +13,7 @@ grounded in the actual git history, not a reconstructed narrative.*
 |---|---|---|
 | Could a stranger run it? | No — hardcoded personal file paths (`C:/Users/sandeep kumar/Downloads/...`) crashed on any other machine | Yes — paths resolve relative to the script |
 | Dev server stability | Flask's debug reloader silently left orphaned processes holding the port after restarts | Reloader disabled; single clean process per run |
-| Frontend code | One HTML file with everything inlined (~170 lines of mixed markup/CSS/JS) | Markup, styling, and behavior in separate files (`templates/`, `static/css/`, `static/js/`) |
+| Frontend code | One HTML file with everything inlined (~170 lines of mixed markup/CSS/JS) | Markup, and 5 ES-module JS files + 4 CSS files each scoped to a single concern (file picker, waveform, recording, predict/result) |
 | Audio format support | WAV only, and only as an unenforced client-side hint | WAV/MP3/OGG/FLAC, validated server-side, with clean error handling on decode failure |
 | Input methods | File upload only | File upload **or** live microphone recording |
 | Audio review before predicting | None — upload and hope | Interactive waveform player: playback, click-to-seek, and progress visualized on the clip's own amplitude shape |
@@ -120,7 +120,7 @@ before spending a prediction on it. (Superseded by the custom waveform player in
   microphone-recorded audio and doesn't affect the `/predict` flow
 
 ### Phase 8 — Staged loading sequence
-*(current session, not yet committed at time of writing)*
+*(commit `9b05f9d`, 2026-08-03)*
 
 - Replaced the plain spinner-and-"Analyzing…" state with a 4-step checklist (Uploading →
   Extracting acoustic features → Running emotion model → Finalizing results), each step
@@ -138,7 +138,7 @@ before spending a prediction on it. (Superseded by the custom waveform player in
   advances correctly and holds indefinitely on the last stage rather than glitching
 
 ### Phase 9 — Smoother loading→result handoff
-*(current session, not yet committed at time of writing)*
+*(commit `9b05f9d`, 2026-08-03)*
 
 - Fixed a "flash cut" feel: the loading checklist and result panel previously toggled via
   raw `display:none`/`display:block` with no transition, and worse, the two panels'
@@ -159,20 +159,43 @@ before spending a prediction on it. (Superseded by the custom waveform player in
   `transform` reset — i.e. there is a real before/after state for the browser's transition
   engine to interpolate between, not an instant jump disguised as a transition
 
+### Phase 10 — Split the frontend by concern (JS modules + matching CSS)
+*(current session, not yet committed at time of writing)*
+
+By this point `static/js/main.js` had grown to ~460 lines covering five genuinely different
+concerns (file picker, waveform player, mic recording, loading checklist, result rendering)
+and `static/css/style.css` had grown alongside it — a maintainability problem raised
+explicitly, in separation-of-concerns terms, as more UI work was still to come.
+
+- Split `main.js` into `utils.js`, `waveform.js`, `fileUpload.js`, `recorder.js`, and
+  `predict.js` — one file per concern — using native ES modules (`import`/`export`,
+  `<script type="module">`), no bundler or build step introduced
+- Kept the module dependency graph one-directional on purpose: rather than a circular import
+  between `fileUpload.js` and `predict.js` (each conceptually needs something from the other),
+  `predict.js` imports `getSelectedFile()` from `fileUpload.js`, and `fileUpload.js`
+  communicates file changes via a `document`-level `'audio:file-changed'` CustomEvent that
+  `predict.js` listens for — `fileUpload.js` never imports `predict.js`
+- Split `style.css` the same way: `base.css` (shared variables/reset/card), `upload.css`,
+  `player.css`, `predict.css` — loaded as four `<link>` tags
+- `main.js` is now a 4-line composition root that only imports the other modules; loading
+  order in that file doesn't matter since native ES module resolution handles the actual
+  dependency order
+- Verified this was a pure refactor, not a behavior change: re-ran the full regression suite
+  (file select → waveform render, predict → result reveal, clear, mic recording end-to-end,
+  the unsupported-extension error path, both themes) against the split files and confirmed
+  zero console errors and identical behavior to before the split. One adjustment the split
+  itself required: `setFile()` is no longer a global, so testing had to simulate real
+  `<input>` `change` events instead of calling it directly — which is itself a sign the split
+  achieved real encapsulation rather than just moving code around
+
 ## Where this is headed
 
 Identified but not yet built, in the order they were prioritized during planning:
 
-1. **Model upgrade** — replace the mean-pooled-MFCC + LSTM approach (which structurally
-   discards the temporal information an LSTM exists to use) with a pretrained speech
-   embedding (wav2vec2/HuBERT), directly addressing both the accuracy ceiling and the dated
-   feature-extraction technique
-2. **Cross-corpus evaluation** — train on 3 of the 4 datasets, evaluate on the 4th held out
-   entirely, to get an honest generalization number instead of the current random-split metric
-3. **Live deployment** — a public, clickable demo (Hugging Face Spaces or Render), since the
+1. **Live deployment** — a public, clickable demo (Hugging Face Spaces or Render), since the
    project has been local-only through all of the phases above
-4. **Baseline comparison, automated tests, CI** — supporting rigor once the above land
-5. **Differentiating angles under consideration**: a fairness/demographic audit (CREMA-D ships
+2. **Baseline comparison, automated tests, CI** — supporting rigor once the above land
+3. **Differentiating angles under consideration**: a fairness/demographic audit (CREMA-D ships
    actor demographic metadata), an honest acted-vs-spontaneous-speech generalization check,
    and an in-app explainability panel — all flagged as rare-at-this-project-tier rather than
    claims of research novelty

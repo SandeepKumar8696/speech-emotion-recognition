@@ -82,7 +82,3 @@ sees.
 | Supported input formats | WAV, MP3, OGG, FLAC (M4A/AAC not yet supported — would require an FFmpeg system dependency) |
 | Inference latency | First request after server start: ~30s (one-time library warm-up). Subsequent requests: under a second. |
 | Scale | Single-clip, single-user demo — not built for concurrent production traffic |
-
-The current accuracy sits below what modern pretrained speech-embedding approaches
-(wav2vec2/HuBERT) achieve on the same underlying datasets — that's tracked as a known
-direction for improvement, not a hidden limitation.
