@@ -155,96 +155,113 @@ The Wav2Vec2-based model achieved a significant improvement over the previous MF
 
 ---
 
+
 # 📁 Project Structure
 
-```text
-Speech-Emotion-Recognition/
-│
-├── static/
-│   ├── css/
-│   └── js/
-│
-├── templates/
-│   └── index.html
-│
-├── app_wav2vec.py
-├── best_model_wav2vec.h5
-├── label_encoder_wav2vec.pkl
-├── scaler_wav2vec.pkl
-├── requirements_wav2vec.txt
-├── .gitignore
-└── README.md
+    Speech-Emotion-Recognition/
+    │
+    ├── static/
+    │   ├── css/
+    │   └── js/
+    │
+    ├── templates/
+    │   └── index.html
+    │
+    ├── app_wav2vec.py
+    ├── best_model_wav2vec.h5
+    ├── label_encoder_wav2vec.pkl
+    ├── scaler_wav2vec.pkl
+    ├── requirements_wav2vec.txt
+    ├── .gitignore
+    └── README.md
 
-⚙️ Installation
+# ⚙️ Installation
 
 Clone the repository
 
-git clone https://github.com/SandeepKumar8696/speech-emotion-recognition.git
+    git clone https://github.com/SandeepKumar8696/speech-emotion-recognition.git
 
 Go to the project folder
 
-cd speech-emotion-recognition
+    cd speech-emotion-recognition
 
 Switch to the Wav2Vec2 branch
 
-git checkout wav2vec2
+    git checkout wav2vec2
 
 Install dependencies
 
-pip install -r requirements_wav2vec.txt
-▶️ Run the Flask Application
-python app_wav2vec.py
+    pip install -r requirements_wav2vec.txt
+
+---
+
+# ▶️ Run the Flask Application
+
+    python app_wav2vec.py
 
 Open your browser and visit:
 
-http://127.0.0.1:5001
+    http://127.0.0.1:5001
 
-Upload a .wav file to predict the emotion.
+Upload a `.wav` file to predict the emotion.
 
 The application extracts Wav2Vec2 embeddings from the uploaded audio and passes them through the trained Dense classifier to generate the predicted emotion.
 
-🤗 Wav2Vec2 Model
+---
+
+# 🤗 Wav2Vec2 Model
 
 This project uses the publicly available pretrained model:
 
-facebook/wav2vec2-base
+    facebook/wav2vec2-base
 
 The Wav2Vec2 model is automatically downloaded through Hugging Face Transformers when the application is first run.
 
 No Hugging Face account or API token is required for downloading this public model.
 
-🔮 Future Improvements
-Fine-tune the Wav2Vec2 model directly for emotion classification
-Compare different Wav2Vec2 hidden layers
-Experiment with larger pretrained speech models
-Real-time microphone emotion recognition
-Improve cross-dataset generalization
-Deploy using Hugging Face Spaces or Render
-📚 Learning Outcomes
+---
+
+# 🔮 Future Improvements
+
+- Fine-tune the Wav2Vec2 model directly for emotion classification
+- Compare different Wav2Vec2 hidden layers
+- Experiment with larger pretrained speech models
+- Real-time microphone emotion recognition
+- Improve cross-dataset generalization
+- Deploy using Hugging Face Spaces or Render
+
+---
+
+# 📚 Learning Outcomes
 
 Through this project I learned:
 
-Audio preprocessing
-Speech feature extraction using Wav2Vec2
-Transformer-based speech representation
-Deep Learning with TensorFlow/Keras
-Dense neural network classification
-Model evaluation techniques
-Flask deployment
-Speech signal processing
-End-to-end machine learning workflow
-👨‍💻 Author
+- Audio preprocessing
+- Speech feature extraction using Wav2Vec2
+- Transformer-based speech representation
+- Deep Learning with TensorFlow/Keras
+- Dense neural network classification
+- Model evaluation techniques
+- Flask deployment
+- Speech signal processing
+- End-to-end machine learning workflow
 
-Sandeep Kumar
+---
+
+# 👨‍💻 Author
+
+**Sandeep Kumar**
 
 B.Tech – Artificial Intelligence & Data Science
 
 GitHub:
 
-https://github.com/SandeepKumar8696
+https://github.com/SandeepKumar8696/speech-emotion-recognition
 
 LinkedIn:
 
 https://www.linkedin.com/in/sandeepkumar3456/
 
-⭐ If you found this project useful, consider giving it a star!
+---
+
+## ⭐ If you found this project useful, consider giving it a star!
