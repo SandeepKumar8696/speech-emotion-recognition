@@ -22,7 +22,7 @@ from werkzeug.utils import secure_filename
 # CONFIGURATION
 # -------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "model_wav2vec.h5")
+MODEL_PATH = os.path.join(BASE_DIR, "best_model_wav2vec.h5")
 LABEL_ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder_wav2vec.pkl")
 SCALER_PATH = os.path.join(BASE_DIR, "scaler_wav2vec.pkl")
 
